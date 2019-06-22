@@ -1,0 +1,6 @@
+{
+  "projects": {
+    "default": "fir-quickstart-1st",
+    "equipment-management": "fir-quickstart-1st"
+  }
+}

@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2016 Google Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<html>
+
+<head>
+  <meta charset=utf-8 />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Email/Password Authentication Example</title>
+
+  <!-- Material Design Theming -->
+  <link rel="stylesheet" href="https://code.getmdl.io/1.1.3/material.orange-indigo.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+  <script defer src="https://code.getmdl.io/1.1.3/material.min.js"></script>
+
+  <!--
+<link rel="stylesheet" href="main.css">
+  -->
+
+  <!-- Import and configure the Firebase SDK -->
+  <!-- These scripts are made available when the app is served or deployed on Firebase Hosting -->
+  <!-- If you do not serve/host your project using Firebase Hosting see https://firebase.google.com/docs/web/setup -->
+  <script src="/__/firebase/6.2.2/firebase-app.js"></script>
+  <script src="/__/firebase/6.2.2/firebase-auth.js"></script>
+  <script src="/__/firebase/6.2.2/firebase-firestore.js"></script>
+  <script src="/__/firebase/init.js"></script>
+  <style media="screen">
+    body {
+      background: #ECEFF1;
+      color: rgba(0, 0, 0, 0.87);
+      font-family: Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+
+    #message {
+      background: white;
+      max-width: 360px;
+      margin: 100px auto 16px;
+      padding: 32px 24px;
+      border-radius: 3px;
+    }
+
+    #message h2 {
+      color: #ffa100;
+      font-weight: bold;
+      font-size: 16px;
+      margin: 0 0 8px;
+    }
+
+    #message h1 {
+      font-size: 22px;
+      font-weight: 300;
+      color: rgba(0, 0, 0, 0.6);
+      margin: 0 0 16px;
+    }
+
+    #message p {
+      line-height: 140%;
+      margin: 16px 0 24px;
+      font-size: 14px;
+    }
+
+    #message a {
+      display: block;
+      text-align: center;
+      background: #039be5;
+      text-transform: uppercase;
+      text-decoration: none;
+      color: white;
+      padding: 16px;
+      border-radius: 4px;
+    }
+
+    #message button {
+      display: inline;
+      text-align: center;
+      background: #039be5;
+      text-transform: uppercase;
+      text-decoration: none;
+      color: white;
+      padding: 16px;
+      border-radius: 4px;
+    }
+
+    #message,
+    #message a {
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+    }
+
+    #load {
+      color: rgba(0, 0, 0, 0.4);
+      text-align: center;
+      font-size: 13px;
+    }
+
+    @media (max-width: 600px) {
+
+      body,
+      #message {
+        margin-top: 0;
+        background: white;
+        box-shadow: none;
+      }
+
+      body {
+        border-top: 16px solid #ffa100;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <div id="message">
+    <h2>Barcode Reader</h2>
+    <video id="player" muted autoplay></video>
+    <canvas id="snapshot" width=320 height=240></canvas>
+    <div>
+      Barcode text : <span id="rawValue"></span>
+    </div>
+    <button id="start">Start</button>
+    <button id="stop">Stop</button>
+    <button id="regist">Regist</button>
+    <a target="_self" href="index.html">Back-To-Index</a>
+    <script>
+      const video = document.getElementById('player');
+      const canvas = document.getElementById('snapshot');
+      const ctx = canvas.getContext('2d');
+      let videoTracks;
+      let localStream = null;
+      let captureTimer = null;
+      const fps = 10;
+      let medias = {
+        video:
+        {
+          width: 320,
+          height: 240,
+          facingMode:
+          {
+            exact: "environment" // リアカメラを使用
+          }
+        },
+        audio: false
+      };
+      const startbtn = document.getElementById('start');
+      const stopbtn = document.getElementById('stop');
+      const registbtn = document.getElementById('regist');
+
+      registbtn.onclick = function () {
+        const rawValue = document.getElementById('rawValue');
+        console.log(rawValue);
+        var collection = firebase.firestore().collection("equipments");
+        var documentRecord = {
+          equipmentId: rawValue.innerText,
+          updateDate: firebase.firestore.FieldValue.serverTimestamp()
+        }
+        console.log(documentRecord);
+        collection
+          .add(documentRecord)
+          .then(function(docRef){
+            console.log("Document written is : ", docRef.id);
+          })
+          .catch(function(error){
+            console.error("Error adding document : ", error);
+          });
+      }
+
+      startbtn.onclick = function () {
+        navigator.mediaDevices.getUserMedia(medias)
+          .then(function (stream) {
+            video.srcObject = stream;
+            localStream = stream;
+
+            if (window.BarcodeDetector) {
+              const detector = new BarcodeDetector();
+              captureTimer = setInterval(function () {
+                ctx.drawImage(video, 0, 0, canvas
+                  .width, canvas.height);
+                let scale = 1;
+                detector.detect(video).then(
+                  function (barcodes) {
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle =
+                      'red';
+                    for (let barcode of barcodes) {
+                      ctx.beginPath();
+                      ctx.rect(Math.floor(
+                        barcode
+                          .boundingBox
+                          .x *
+                        scale
+                      ),
+                        Math.floor(
+                          barcode
+                            .boundingBox
+                            .y *
+                          scale
+                        ),
+                        Math.floor(
+                          barcode
+                            .boundingBox
+                            .width *
+                          scale
+                        ),
+                        Math.floor(
+                          barcode
+                            .boundingBox
+                            .height *
+                          scale
+                        ));
+                      ctx.stroke();
+                      console.log(
+                        "value : " +
+                        barcode.rawValue
+                      );
+                      console.log(
+                        barcode);
+                      document.getElementById(
+                        'rawValue'
+                      ).innerHTML =
+                        //convertLink(
+                          barcode.rawValue
+                        //);
+                          
+                    }
+                  }).catch(function (err) {
+                    console.error(err);
+                  });
+              }, 1000 / fps);
+            }
+            else {
+              console.error(
+                'BarcodeDetection is not enable!');
+            }
+            startbtn.disabled = true;
+            stopbtn.disabled = false;
+          }).catch(function (err) {
+            console.log(err);
+            // リアカメラが無い場合はそれ以外のカメラ
+            medias = {
+              video:
+              {
+                width: 320,
+                height: 240
+              },
+              audio: false
+            };
+
+          });
+      };
+
+      stopbtn.onclick = function () {
+        clearInterval(captureTimer);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        localStream.getTracks().forEach(function (track) {
+          track.stop();
+        });
+        localStream = null;
+        video.srcObject = null;
+        startbtn.disabled = false;
+        stopbtn.disabled = true;
+
+      };
+
+      function convertLink(str) {
+        const regexpUrl =
+          /((h?)(ttps?:\/\/[a-zA-Z0-9.\-_@:/~?%&;=+#',()*!]+))/g; // ']))/;
+        const regexpLink = function (all, url, h, href) {
+          return '<a href="h' + href + '">' + url + '</a>';
+        }
+
+        return str.replace(regexpUrl, regexpLink);
+      };
+      // load時にstart状態にする
+      startbtn.click();
+    </script>
+  </div>
+</body>
